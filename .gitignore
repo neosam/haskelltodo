@@ -1,4 +1,4 @@
 cabal.sandbox.config
 build
 .cabal-sandbox/
-.dist/
+dist/

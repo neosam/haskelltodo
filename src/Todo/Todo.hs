@@ -2,9 +2,19 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Todo.Todo () where
+module Todo.Todo (
+  -- * Types
+  TaskStat,
+  ActiveTask,
+  PooledTask,
+  Task,
 
-import System.Random (StdGen, random)
+  -- * TaskStat State monad functions
+  emptyTaskStat
+
+) where
+
+import System.Random (StdGen, random, mkStdGen)
 import Data.Time (Day)
 import qualified Data.Time as Time
 import Control.Lens
@@ -16,6 +26,7 @@ data TaskStat = TaskStat {
   _today :: Day,
   _rand :: StdGen
 }
+
 
 data ActiveTask = ActiveTask {
   _atTask :: Task,
@@ -49,6 +60,9 @@ addDays i = Time.addDays $ toInteger i
 -- | Assuming this is the smallest date used for the tasks
 zeroDay :: Day
 zeroDay = read "2010-01-01"
+
+
+emptyTaskStat = TaskStat [] [] zeroDay (mkStdGen 0)
 
 -- | Add an active task to the state
 addActiveTask :: (String, String, Float, Int) -> State TaskStat ()
@@ -143,7 +157,7 @@ cleanup :: State TaskStat ()
 cleanup = do
   stat <- get
   let inactiveTasks = stat ^.. unfinished
-  unfinished .= inactiveTasks
+  actives .= inactiveTasks
 
 -- | Traversal to the unfinished 'ActiveTask's
 unfinished :: Traversal' TaskStat ActiveTask

@@ -28,3 +28,15 @@ library
 
   hs-source-dirs:      src
   default-language:    Haskell2010
+
+Executable todo-ui
+  Main-is:             TodoUi.hs
+  Build-Depends:       base >=4.8 && <4.9,
+                       time >=1.5 && <1.6,
+                       mtl >=2.2 && <2.3,
+                       random >=1.1 && <1.2,
+                       lens
+                       
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+

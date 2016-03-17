@@ -1,6 +1,17 @@
+{-|
+Module      : Todo.Todo
+Description : Core todo module.
+Copyright   : (c) Simon Goller, 2016
+License     : BSD
+
+Provides the basic functionality for the tasks.
+
+-}
+
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+
 
 module Todo.Todo (
   -- * Types
@@ -10,7 +21,37 @@ module Todo.Todo (
   Task,
 
   -- * TaskStat State monad functions
-  emptyTaskStat
+  emptyTaskStat,
+  addActiveTask,
+  addPooledTask,
+  activate,
+  getOverdues,
+  cleanup,
+  markDone,
+
+  -- * Lenses and stuff
+  -- ** General access
+  -- *** State
+  actives,
+  pool,
+  today,
+  rand,
+
+  -- *** ActiveTask
+  atTask,
+  atDue,
+  atFinished,
+
+  -- *** PooledTask
+  ptTask,
+  ptDueDays,
+  ptLastFinished,
+  ptProp,
+
+  -- *** Task
+  tTitle,
+  tDesc,
+  tFactor
 
 ) where
 
@@ -20,6 +61,7 @@ import qualified Data.Time as Time
 import Control.Lens
 import Control.Monad.State.Lazy
 
+-- | Overall task management state
 data TaskStat = TaskStat {
   _actives :: [ActiveTask],
   _pool :: [PooledTask],
@@ -28,12 +70,15 @@ data TaskStat = TaskStat {
 }
 
 
+-- | Avtivated tasks
 data ActiveTask = ActiveTask {
   _atTask :: Task,
   _atDue :: Day,
   _atFinished :: Maybe Day
 }
 
+
+-- | Tasks which can be potentially activated
 data PooledTask = PooledTask {
   _ptTask :: Task,
   _ptDueDays :: Int,
@@ -41,6 +86,7 @@ data PooledTask = PooledTask {
   _ptLastFinished :: Day
 }
 
+-- | The core of a task
 data Task = Task {
   _tTitle :: String,
   _tDesc :: String,
@@ -62,6 +108,11 @@ zeroDay :: Day
 zeroDay = read "2010-01-01"
 
 
+-- | 'TaskStat' which contains no or just default values
+--
+-- The random generator is initialized with seed 0 and will always produce
+-- the same values.  Please set to new value before you use it.
+emptyTaskStat :: TaskStat
 emptyTaskStat = TaskStat [] [] zeroDay (mkStdGen 0)
 
 -- | Add an active task to the state

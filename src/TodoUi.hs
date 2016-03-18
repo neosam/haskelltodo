@@ -24,6 +24,8 @@ newline = putStr "\n"
 doMenu :: TaskStat -> Menu -> IO TaskStat
 doMenu ts menu = do
   newline
+  putStr $ show ts
+  newline
   putStr $ menu ^. menuTitle
   newline
   printMenuEntries $ menu ^. menuEntries
@@ -88,11 +90,20 @@ menu = Menu "Todo - Main" "Exit" [
   ("Add active task", IOAction addActiveTaskAction)
  ]
 
+liftSt :: State a b -> StateT a IO b
+liftSt st = do
+  x <- get
+  let (val, x') = runState st x
+  put x'
+  return val
+
 addActiveTaskAction :: StateT TaskStat IO ()
 addActiveTaskAction = do
-  lift $ putStr "test"
-  str <- lift $ promptString "Title: "
-  lift $ putStr str
+  title <- lift $ promptString "Title: "
+  desc <- lift $ promptString "Description: "
+  factor <- lift $ promptFloat "Factor: "
+  dueDays <- lift $ promptInt "Due in days: "
+  liftSt $ addActiveTask (title, desc, factor, dueDays)
 
 main :: IO ()
 main = do

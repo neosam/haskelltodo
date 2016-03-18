@@ -67,7 +67,7 @@ data TaskStat = TaskStat {
   _pool :: [PooledTask],
   _today :: Day,
   _rand :: StdGen
-}
+} deriving (Show, Read)
 
 
 -- | Avtivated tasks
@@ -75,7 +75,7 @@ data ActiveTask = ActiveTask {
   _atTask :: Task,
   _atDue :: Day,
   _atFinished :: Maybe Day
-}
+ } deriving (Eq, Show, Read)
 
 
 -- | Tasks which can be potentially activated
@@ -84,14 +84,14 @@ data PooledTask = PooledTask {
   _ptDueDays :: Int,
   _ptProp :: Float,
   _ptLastFinished :: Day
-}
+ } deriving (Eq, Show, Read)
 
 -- | The core of a task
 data Task = Task {
   _tTitle :: String,
   _tDesc :: String,
   _tFactor :: Float
-}
+ } deriving (Eq, Show, Read)
 
 makeLenses ''TaskStat
 makeLenses ''ActiveTask

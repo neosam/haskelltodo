@@ -13,39 +13,54 @@ data Menu = Menu {
      _menuEntries :: [(String, MenuEntry)]
 }
 
+
+data TuiStat = TuiStat {
+  _tuiFilename :: String,
+  _tuiMainMenu :: Menu,
+  _tuiTaskStat :: TaskStat
+}
+
+type TuiState = StateT TuiStat IO
+
 data MenuEntry = SubMenu Menu
-               | IOAction (StateT TaskStat IO ())
+               | IOAction (TuiState ())
 
 makeLenses ''Menu
+makeLenses ''TuiStat
 
-newline :: IO ()
-newline = putStr "\n"
 
-doMenu :: TaskStat -> Menu -> IO TaskStat
-doMenu ts menu = do
+newline :: TuiState ()
+newline = lift $ putStr "\n"
+
+tPutStr :: String -> TuiState ()
+tPutStr str = lift $ putStr str
+
+doMenu :: Menu -> TuiState ()
+doMenu menu = do
   newline
-  putStr $ show ts
+  ts <- use tuiTaskStat
+  tPutStr $ show ts
   newline
-  putStr $ menu ^. menuTitle
+  tPutStr $ menu ^. menuTitle
   newline
-  printMenuEntries $ menu ^. menuEntries
-  putStr "0 - "
-  putStr $ menu ^. exitLabel
+  printMenuEntries menu
+  tPutStr "0 - "
+  tPutStr $ menu ^. exitLabel
   newline
-  (back, ts') <- doMenuUserInput ts menu
+  back <- doMenuUserInput menu
   if back
-     then return ts'
-     else doMenu ts' menu
+     then return ()
+     else doMenu menu
 
-doMenuUserInput :: TaskStat -> Menu -> IO (Bool, TaskStat)
-doMenuUserInput ts menu = do
-  choice <- promptInt "> "
+doMenuUserInput :: Menu -> TuiState Bool
+doMenuUserInput menu = do
+  choice <- lift $ promptInt "> "
   if choice == 0
-     then return (True, ts)
+     then return True
      else do
        let entries = menu ^. menuEntries
            (_, entry) = entries !! (choice - 1)
-       doMenuEntry ts entry
+       doMenuEntry entry
 
 promptString :: String -> IO String
 promptString str = do
@@ -74,7 +89,7 @@ doMenuEntry ts (IOAction state) = do
   ts' <- execStateT state ts
   return (False, ts')
 
-printMenuEntries :: [(String, MenuEntry)] -> IO ()
+printMenuEntries :: Menu -> TuiState ()
 printMenuEntries entries = do
   let indices = [1..] :: [Int]
       zipped = zip indices entries
@@ -103,7 +118,7 @@ addActiveTaskAction = do
   desc <- lift $ promptString "Description: "
   factor <- lift $ promptFloat "Factor: "
   dueDays <- lift $ promptInt "Due in days: "
-  liftSt $ addActiveTask (title, desc, factor, dueDays)
+  liftSt $ addActiveTaskM (title, desc, factor, dueDays)
 
 main :: IO ()
 main = do

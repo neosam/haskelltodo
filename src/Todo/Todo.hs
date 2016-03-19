@@ -22,12 +22,18 @@ module Todo.Todo (
 
   -- * TaskStat State monad functions
   emptyTaskStat,
+  addActiveTaskM,
   addActiveTask,
   addPooledTask,
+  addPooledTaskM,
   activate,
+  activateM,
   getOverdues,
+  getOverduesM,
   cleanup,
+  cleanupM,
   markDone,
+  markDoneM,
 
   -- * Lenses and stuff
   -- ** General access
@@ -116,66 +122,76 @@ emptyTaskStat :: TaskStat
 emptyTaskStat = TaskStat [] [] zeroDay (mkStdGen 0)
 
 -- | Add an active task to the state
-addActiveTask :: (String, String, Float, Int) -> State TaskStat ()
-addActiveTask (title, desc, factor, dueDays) = do
+addActiveTaskM:: (String, String, Float, Int) -> State TaskStat ()
+addActiveTaskM (title, desc, factor, dueDays) = do
   t <- use today
   let task = Task title desc factor
       due = addDays dueDays t
       aTask = ActiveTask task due Nothing
   actives %= (\xs -> aTask : xs)
 
+addActiveTask :: (String, String, Float, Int) -> TaskStat -> TaskStat
+addActiveTask vals = execState $ addActiveTaskM vals
+
 -- | Adding a pooled task to the state
-addPooledTask :: (String, String, Float, Int, Float) -> State TaskStat ()
-addPooledTask (title, desc, factor, dueDay, prop) = do
+addPooledTaskM :: (String, String, Float, Int, Float) -> State TaskStat ()
+addPooledTaskM (title, desc, factor, dueDay, prop) = do
   let task = Task title desc factor
       pTask = PooledTask task dueDay prop zeroDay
   pool %= (\xs -> pTask : xs)
 
+addPooledTask :: (String, String, Float, Int, Float) -> TaskStat -> TaskStat
+addPooledTask vals = execState $ addPooledTaskM vals
+
 -- | Randomly activate pooled tasks
-activate :: State TaskStat ()
-activate = do
+activateM :: State TaskStat ()
+activateM = do
   stat <- get
-  pTasks <- getPTasksToActivate
-  aTasks <- mapM pTasksToActive pTasks
+  pTasks <- getPTasksToActivateM
+  aTasks <- mapM pTasksToActiveM pTasks
   actives %= (\xs -> aTasks ++ xs)
   return ()
 
+activate :: TaskStat -> TaskStat
+activate = execState activateM
+
 -- | Transform a 'PooledTask' to an 'ActiveTask'
-pTasksToActive :: PooledTask -> State TaskStat ActiveTask
-pTasksToActive pTask = do
+pTasksToActiveM :: PooledTask -> State TaskStat ActiveTask
+pTasksToActiveM pTask = do
   day <- use today
   let task = view ptTask pTask
       due = addDays (view ptDueDays pTask) day
   return $ ActiveTask task due Nothing
 
+
 -- | Pick pooled tasks which can be activated
-getPTasksToActivate :: State TaskStat [PooledTask]
-getPTasksToActivate = do
+getPTasksToActivateM :: State TaskStat [PooledTask]
+getPTasksToActivateM = do
   stat <- get
-  let potentialPTasks = toListOf (tasksToActivate stat) stat
-  pickPTasksRandomly potentialPTasks
+  let potentialPTasks = toListOf (tasksToActivateM stat) stat
+  pickPTasksRandomlyM potentialPTasks
 
 -- | Pick tasks from the 'PooledTask' list randomly
-pickPTasksRandomly :: [PooledTask] -> State TaskStat [PooledTask]
-pickPTasksRandomly pTasks = filterM shouldTaskBeActivated pTasks
+pickPTasksRandomlyM :: [PooledTask] -> State TaskStat [PooledTask]
+pickPTasksRandomlyM pTasks = filterM shouldTaskBeActivatedM pTasks
 
 -- | Randomly decide if a task should be activated
-shouldTaskBeActivated :: PooledTask -> State TaskStat Bool
-shouldTaskBeActivated pTask = do
-  f <- randomFloat
+shouldTaskBeActivatedM :: PooledTask -> State TaskStat Bool
+shouldTaskBeActivatedM pTask = do
+  f <- randomFloatM
   return $ f < view ptProp pTask
 
 -- | Pick a random value between 0 and 1.
-randomFloat :: State TaskStat Float
-randomFloat = do
+randomFloatM :: State TaskStat Float
+randomFloatM = do
   r <- use rand
   let (val, r') = (random r) :: (Float, StdGen)
   rand .= r'
   return val
 
 -- | Traversal to the tasks which can be potentially activated
-tasksToActivate :: TaskStat -> Traversal' TaskStat PooledTask
-tasksToActivate stat = pool.traverse.(notActivePTasks $ view actives stat)
+tasksToActivateM :: TaskStat -> Traversal' TaskStat PooledTask
+tasksToActivateM stat = pool.traverse.(notActivePTasks $ view actives stat)
                              .(notCoolingDown $ view today stat)
 
 -- | Filter only tasks which are not inside the given 'ActiveTask' list
@@ -192,23 +208,29 @@ notCoolingDown day = filtered $ \pTask ->
 
 
 -- | Get all 'ActiveTask's which are overdue
-getOverdues :: State TaskStat [ActiveTask]
-getOverdues = do
+getOverduesM :: State TaskStat [ActiveTask]
+getOverduesM = do
   stat <- get
   day <- use today
   return $ stat ^.. overdues day
 
--- | Traversal to the 'ActiveTask's which are overdue if today is the given day
+getOverdues :: TaskStat -> TaskStat
+getOverdues = execState getOverduesM
+
+-- | Traversal to the 'ActiveTask's which are overdue after the given day
 overdues :: Day -> Traversal' TaskStat ActiveTask
 overdues day = actives.traverse.(filtered $ \aTask ->
   (view atDue aTask) > day)
 
 -- | Remove completed tasks
-cleanup :: State TaskStat ()
-cleanup = do
+cleanupM :: State TaskStat ()
+cleanupM = do
   stat <- get
   let inactiveTasks = stat ^.. unfinished
   actives .= inactiveTasks
+
+cleanup :: TaskStat -> TaskStat
+cleanup = execState cleanupM
 
 -- | Traversal to the unfinished 'ActiveTask's
 unfinished :: Traversal' TaskStat ActiveTask
@@ -216,10 +238,13 @@ unfinished = actives.traverse.(filtered $ \aTask ->
   (aTask ^. atFinished) /= Nothing)
 
 -- | Mark task with the given title done.
-markDone :: String -> State TaskStat ()
-markDone title = do
+markDoneM :: String -> State TaskStat ()
+markDoneM title = do
   day <- use today
   (taskWithTitle title).atFinished .= Just day
+
+markDone :: String -> TaskStat -> TaskStat
+markDone title = execState $ markDoneM title
 
 -- | Traversal to task with given title
 taskWithTitle :: String -> Traversal' TaskStat ActiveTask

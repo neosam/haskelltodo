@@ -21,7 +21,7 @@ main :: IO ()
 main = hspec $ do
   describe "The task handling" $ do
     it "should be able to add an active task" $ do
-      let tst' = execState (addActiveTask ("title", "desc", 1.2, 3)) tst
+      let tst' = execState (addActiveTaskM ("title", "desc", 1.2, 3)) tst
       length (tst' ^. actives) `shouldBe` 1
       let aTask : _ = tst' ^. actives
       (aTask ^. atTask . tTitle) `shouldBe` "title"

@@ -35,6 +35,10 @@ newline = lift $ putStr "\n"
 tPutStr :: String -> TuiState ()
 tPutStr str = lift $ putStr str
 
+
+run :: TuiStat -> IO TuiStat
+run stat = execStateT (doMenu $ stat ^. tuiMainMenu) stat
+
 doMenu :: Menu -> TuiState ()
 doMenu menu = do
   newline
@@ -81,27 +85,28 @@ promptFloat str = do
    readLn
 
 
-doMenuEntry :: TaskStat -> MenuEntry -> IO (Bool, TaskStat)
-doMenuEntry ts (SubMenu menu) = do
-  ts' <- doMenu ts menu
-  return (False, ts')
-doMenuEntry ts (IOAction state) = do
-  ts' <- execStateT state ts
-  return (False, ts')
+doMenuEntry :: MenuEntry -> TuiState Bool
+doMenuEntry (SubMenu menu) = do
+  doMenu menu
+  return False
+doMenuEntry (IOAction state) = do
+  state
+  return False
 
 printMenuEntries :: Menu -> TuiState ()
-printMenuEntries entries = do
+printMenuEntries menu = do
+  let entries = menu ^. menuEntries
   let indices = [1..] :: [Int]
       zipped = zip indices entries
   mapM (\(i, (title, _)) -> do
-    putStr $ show i
-    putStr " - "
-    putStr title
+    tPutStr $ show i
+    tPutStr " - "
+    tPutStr title
     newline
    ) zipped
   return ()
 
-menu = Menu "Todo - Main" "Exit" [
+mainMenu = Menu "Todo - Main" "Exit" [
   ("Add active task", IOAction addActiveTaskAction)
  ]
 
@@ -112,16 +117,17 @@ liftSt st = do
   put x'
   return val
 
-addActiveTaskAction :: StateT TaskStat IO ()
+addActiveTaskAction :: TuiState ()
 addActiveTaskAction = do
   title <- lift $ promptString "Title: "
   desc <- lift $ promptString "Description: "
   factor <- lift $ promptFloat "Factor: "
   dueDays <- lift $ promptInt "Due in days: "
-  liftSt $ addActiveTaskM (title, desc, factor, dueDays)
+  tuiTaskStat %= addActiveTask (title, desc, factor, dueDays)
 
 main :: IO ()
 main = do
-  doMenu emptyTaskStat menu
+  let tuiStat = TuiStat "state.sav" mainMenu emptyTaskStat
+  _ <- run tuiStat
   return ()
 

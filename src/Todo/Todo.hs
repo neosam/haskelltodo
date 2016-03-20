@@ -87,6 +87,7 @@ import Control.Exception (SomeException, try)
 
 -- | Overall task management state
 data TaskStat = TaskStat {
+  _taskVer :: String,
   _actives :: [ActiveTask],
   _pool :: [PooledTask],
   _today :: Day,
@@ -123,6 +124,23 @@ makeLenses ''PooledTask
 makeLenses ''Task
 
 
+--showStat :: TaskStat -> String
+--showStat ts = "htodo 0.1\n" ++
+--  (ts ^. taskVer) ++ "\n" ++
+--  show (ts ^. actives) ++ "\n" ++
+--  show (ts ^. pool) ++ "\n"
+--
+--instance Show TaskStat where
+--  show = showStat
+--
+--
+--readStat :: Int -> String -> [(Stat, String)]
+--readStat n str =
+--  let [(version, str')] = readsPrec 
+
+
+
+
 -- | Adding days using an 'Int'
 addDays :: Int -> Day -> Day
 addDays i = Time.addDays $ toInteger i
@@ -137,7 +155,7 @@ zeroDay = read "2010-01-01"
 -- The random generator is initialized with seed 0 and will always produce
 -- the same values.  Please set to new value before you use it.
 emptyTaskStat :: TaskStat
-emptyTaskStat = TaskStat [] [] zeroDay (mkStdGen 0)
+emptyTaskStat = TaskStat "0.1" [] [] zeroDay (mkStdGen 0)
 
 -- | Add an active task to the state
 addActiveTaskM:: (String, String, Float, Int) -> State TaskStat ()

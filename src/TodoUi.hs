@@ -143,9 +143,12 @@ mainMenu = Menu "Todo - Main" "Exit" [
     ("Show tasks next 4 days", IOAction (showTasksNextDaysAction 4)),
     ("Show tasks next 7 days", IOAction (showTasksNextDaysAction 7)),
     ("Show tasks next 30 days", IOAction (showTasksNextDaysAction 30))
-  ]))
+  ])),
+  ("Cleanup actives", IOAction cleanupAction)
  ]
 
+cleanupAction :: TuiState ()
+cleanupAction = tuiTaskStat %= cleanup
 
 allActives :: Traversal' TuiStat ActiveTask
 allActives = tuiTaskStat.actives.traverse

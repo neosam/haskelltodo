@@ -70,7 +70,10 @@ module Todo.Todo (
   overdues,
   tasksToActivate,
   notActivePTasks,
-  notCoolingDown
+  notCoolingDown,
+
+  -- * Other
+  addDays
 ) where
 
 import System.Random (StdGen, random, mkStdGen, newStdGen)
@@ -235,7 +238,7 @@ getOverdues = execState getOverduesM
 -- | Traversal to the 'ActiveTask's which are overdue after the given day
 overdues :: Day -> Traversal' TaskStat ActiveTask
 overdues day = actives.traverse.(filtered $ \aTask ->
-  (view atDue aTask) > day)
+  (aTask ^. atDue) < day)
 
 -- | Remove completed tasks
 cleanupM :: State TaskStat ()

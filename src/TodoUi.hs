@@ -61,7 +61,6 @@ doMenu menu = do
   save
   newline
   ts <- use tuiTaskStat
-  tPutStr $ show ts
   newline
   tPutStr $ menu ^. menuTitle
   newline
@@ -136,8 +135,66 @@ printMenuEntries menu = do
 mainMenu = Menu "Todo - Main" "Exit" [
   ("Add active task", IOAction addActiveTaskAction),
   ("Add pooled task", IOAction addScheduledTaskAction),
-  ("Activate pooled tasks", IOAction activateAction)
+  ("Activate pooled tasks", IOAction activateAction),
+  ("Show Tasks", SubMenu (Menu "Show Tasks" "Back" [
+    ("Show active tasks", IOAction showActivesAction),
+    ("Show overdue tasks", IOAction showOverduesAction),
+    ("Show tasks next 2 days", IOAction (showTasksNextDaysAction 2)),
+    ("Show tasks next 4 days", IOAction (showTasksNextDaysAction 4)),
+    ("Show tasks next 7 days", IOAction (showTasksNextDaysAction 7)),
+    ("Show tasks next 30 days", IOAction (showTasksNextDaysAction 30))
+  ]))
  ]
+
+
+allActives :: Traversal' TuiStat ActiveTask
+allActives = tuiTaskStat.actives.traverse
+
+allOverdues :: TuiStat -> Traversal' TuiStat ActiveTask
+allOverdues stat = tuiTaskStat.(overdues $ stat ^. tuiTaskStat.today)
+
+showActivesAction :: TuiState ()
+showActivesAction = showActives allActives
+
+filteredNextDays :: TuiStat -> Int -> Traversal' ActiveTask ActiveTask
+filteredNextDays stat n = filtered $ \aTask ->
+  let day = addDays n $ stat ^. tuiTaskStat . today
+   in (aTask^.atDue) < day
+
+activesNextDays :: TuiStat -> Int -> Traversal' TuiStat ActiveTask
+activesNextDays stat n = allActives.(filteredNextDays stat n)
+
+showTasksNextDaysAction :: Int -> TuiState ()
+showTasksNextDaysAction n = do
+  stat <- get
+  showActives (activesNextDays stat n)
+
+showOverduesAction :: TuiState ()
+showOverduesAction = do
+  stat <- get
+  showActives (allOverdues stat)
+
+showActives :: Traversal' TuiStat ActiveTask -> TuiState ()
+showActives tr = do
+  st <- get
+  let aTasks = st ^.. tr
+  mapM_ printActive $ st ^.. tr
+  tPutStr "Task count:  "
+  tPutStr $ show $ length aTasks
+  tPutStr "\n"
+  _ <- promptString "Press enter key to continue..."
+  return ()
+
+printActive :: ActiveTask -> TuiState ()
+printActive aTask = do
+  tPutStr $ show $ aTask ^. atDue
+  tPutStr ":  "
+  tPutStr $ aTask ^. atTask . tTitle
+  tPutStr " ("
+  tPutStr $ if aTask ^. atFinished == Nothing
+               then "todo"
+               else "done"
+  tPutStr ")\n"
 
 activateAction :: TuiState ()
 activateAction = tuiTaskStat %= activate

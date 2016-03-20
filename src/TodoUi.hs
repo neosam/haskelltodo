@@ -126,13 +126,12 @@ printMenuEntries menu = do
   let entries = menu ^. menuEntries
   let indices = [1..] :: [Int]
       zipped = zip indices entries
-  mapM (\(i, (title, _)) -> do
+  forM_ zipped $ \(i, (title, _)) -> do
     tPutStr $ show i
     tPutStr " - "
     tPutStr title
     newline
-   ) zipped
-  return ()
+
 
 mainMenu = Menu "Todo - Main" "Exit" [
   ("Add active task", IOAction addActiveTaskAction),

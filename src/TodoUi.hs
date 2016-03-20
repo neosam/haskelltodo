@@ -1,11 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
 
 import Todo.Todo
 import Control.Lens
 import Control.Monad.State.Lazy
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, stdout, openFile, hGetContents, hClose,
+                  IOMode(ReadMode))
+import Control.Exception (SomeException, try)
 
 data Menu = Menu {
      _menuTitle :: String,
@@ -37,7 +40,14 @@ tPutStr str = lift $ putStr str
 
 
 run :: TuiStat -> IO TuiStat
-run stat = execStateT (doMenu $ stat ^. tuiMainMenu) stat
+run stat = execStateT runTuiStat stat
+
+runTuiStat :: TuiState ()
+runTuiStat = do
+  load
+  mainMenu <- use tuiMainMenu
+  doMenu mainMenu
+
 
 update :: TuiState ()
 update = do
@@ -149,6 +159,30 @@ save = do
   filename <- use tuiFilename
   let saveStr = show ts
   lift $ writeFile filename saveStr
+
+loadTmUnsafe :: String -> IO TaskStat
+loadTmUnsafe filename = do
+  handle <- openFile filename ReadMode
+  !state <- hGetContents handle
+  let !tm = (read state) :: TaskStat
+  hClose handle
+  return tm
+
+loadTm :: String -> IO (Maybe TaskStat)
+loadTm filename = do
+  eitherTm <- (try $ loadTmUnsafe filename) :: IO (Either SomeException TaskStat)
+  case eitherTm of
+    Left _ -> return Nothing
+    Right tm -> return $ Just tm
+
+load :: TuiState ()
+load = do
+  filename <- use tuiFilename
+  maybeTm <- lift $ loadTm filename
+  case maybeTm of
+    Nothing -> return ()
+    Just tm -> do
+      tuiTaskStat .= tm
 
 main :: IO ()
 main = do

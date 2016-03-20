@@ -94,13 +94,23 @@ promptInt :: String -> TuiState Int
 promptInt str = do
    lift $ putStr str
    lift $ hFlush stdout
-   lift $ readLn
+   eitherInt <- (lift $ try readLn) :: StateT TuiStat IO (Either SomeException Int)
+   case eitherInt of
+     Left _ -> do
+       lift $ putStr "Try again\n"
+       promptInt str
+     Right i -> return i
 
 promptFloat :: String -> TuiState Float
 promptFloat str = do
    lift $ putStr str
    lift $ hFlush stdout
-   lift $ readLn
+   eitherFloat <- (lift $ try readLn) :: StateT TuiStat IO (Either SomeException Float)
+   case eitherFloat of
+     Left _ -> do
+       lift $ putStr "Try again\n"
+       promptFloat str
+     Right f -> return f
 
 
 doMenuEntry :: MenuEntry -> TuiState Bool

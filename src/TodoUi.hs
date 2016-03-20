@@ -39,8 +39,15 @@ tPutStr str = lift $ putStr str
 run :: TuiStat -> IO TuiStat
 run stat = execStateT (doMenu $ stat ^. tuiMainMenu) stat
 
+update :: TuiState ()
+update = do
+  ts <- use tuiTaskStat
+  ts' <- lift $ updateTaskStat ts
+  tuiTaskStat .= ts'
+
 doMenu :: Menu -> TuiState ()
 doMenu menu = do
+  update
   newline
   ts <- use tuiTaskStat
   tPutStr $ show ts
@@ -58,7 +65,7 @@ doMenu menu = do
 
 doMenuUserInput :: Menu -> TuiState Bool
 doMenuUserInput menu = do
-  choice <- lift $ promptInt "> "
+  choice <- promptInt "> "
   if choice == 0
      then return True
      else do
@@ -66,23 +73,23 @@ doMenuUserInput menu = do
            (_, entry) = entries !! (choice - 1)
        doMenuEntry entry
 
-promptString :: String -> IO String
+promptString :: String -> TuiState String
 promptString str = do
-  putStr str
-  hFlush stdout
-  getLine
+  lift $ putStr str
+  lift $ hFlush stdout
+  lift $ getLine
 
-promptInt :: String -> IO Int
+promptInt :: String -> TuiState Int
 promptInt str = do
-   putStr str
-   hFlush stdout
-   readLn
+   lift $ putStr str
+   lift $ hFlush stdout
+   lift $ readLn
 
-promptFloat :: String -> IO Float
+promptFloat :: String -> TuiState Float
 promptFloat str = do
-   putStr str
-   hFlush stdout
-   readLn
+   lift $ putStr str
+   lift $ hFlush stdout
+   lift $ readLn
 
 
 doMenuEntry :: MenuEntry -> TuiState Bool
@@ -107,7 +114,8 @@ printMenuEntries menu = do
   return ()
 
 mainMenu = Menu "Todo - Main" "Exit" [
-  ("Add active task", IOAction addActiveTaskAction)
+  ("Add active task", IOAction addActiveTaskAction),
+  ("Add scheduled task", IOAction addScheduledTaskAction)
  ]
 
 liftSt :: State a b -> StateT a IO b
@@ -119,11 +127,20 @@ liftSt st = do
 
 addActiveTaskAction :: TuiState ()
 addActiveTaskAction = do
-  title <- lift $ promptString "Title: "
-  desc <- lift $ promptString "Description: "
-  factor <- lift $ promptFloat "Factor: "
-  dueDays <- lift $ promptInt "Due in days: "
+  title <- promptString "Title: "
+  desc <- promptString "Description: "
+  factor <- promptFloat "Factor: "
+  dueDays <- promptInt "Due in days: "
   tuiTaskStat %= addActiveTask (title, desc, factor, dueDays)
+
+addScheduledTaskAction :: TuiState ()
+addScheduledTaskAction = do
+  title <- promptString "Title: "
+  desc <- promptString "Description: "
+  factor <- promptFloat "Factor: "
+  dueDays <- promptInt "Due in days:"
+  prop <- promptFloat "Propability to be picked: "
+  tuiTaskStat %= addPooledTask (title, desc, factor, dueDays, prop)
 
 main :: IO ()
 main = do

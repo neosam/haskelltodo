@@ -35,6 +35,8 @@ module Todo.Todo (
   markDone,
   markDoneM,
 
+  updateTaskStat,
+
   -- * Lenses and stuff
   -- ** General access
   -- *** State
@@ -61,8 +63,8 @@ module Todo.Todo (
 
 ) where
 
-import System.Random (StdGen, random, mkStdGen)
-import Data.Time (Day)
+import System.Random (StdGen, random, mkStdGen, newStdGen)
+import Data.Time (Day, getCurrentTime, utctDay)
 import qualified Data.Time as Time
 import Control.Lens
 import Control.Monad.State.Lazy
@@ -251,3 +253,12 @@ taskWithTitle :: String -> Traversal' TaskStat ActiveTask
 taskWithTitle title = actives.traverse.(filtered $ \aTask ->
   (aTask ^. atTask . tTitle) == title
  )
+
+updateTaskStat :: TaskStat -> IO TaskStat
+updateTaskStat ts = do
+  stdGen <- newStdGen
+  timeNow <- getCurrentTime
+  let day = utctDay timeNow
+  let ts' = ts & today .~ day
+  let ts'' = ts' & rand .~  stdGen
+  return ts''

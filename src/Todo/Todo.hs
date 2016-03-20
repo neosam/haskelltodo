@@ -262,3 +262,4 @@ updateTaskStat ts = do
   let ts' = ts & today .~ day
   let ts'' = ts' & rand .~  stdGen
   return ts''
+

@@ -48,6 +48,7 @@ update = do
 doMenu :: Menu -> TuiState ()
 doMenu menu = do
   update
+  save
   newline
   ts <- use tuiTaskStat
   tPutStr $ show ts
@@ -141,6 +142,13 @@ addScheduledTaskAction = do
   dueDays <- promptInt "Due in days:"
   prop <- promptFloat "Propability to be picked: "
   tuiTaskStat %= addPooledTask (title, desc, factor, dueDays, prop)
+
+save :: TuiState ()
+save = do
+  ts <- use tuiTaskStat
+  filename <- use tuiFilename
+  let saveStr = show ts
+  lift $ writeFile filename saveStr
 
 main :: IO ()
 main = do

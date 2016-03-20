@@ -11,6 +11,7 @@ Provides the basic functionality for the tasks.
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
 
 
 module Todo.Todo (
@@ -36,6 +37,8 @@ module Todo.Todo (
   markDoneM,
 
   updateTaskStat,
+  loadTmUnsafe,
+  loadTm,
 
   -- * Lenses and stuff
   -- ** General access
@@ -44,6 +47,7 @@ module Todo.Todo (
   pool,
   today,
   rand,
+
 
   -- *** ActiveTask
   atTask,
@@ -59,8 +63,14 @@ module Todo.Todo (
   -- *** Task
   tTitle,
   tDesc,
-  tFactor
+  tFactor,
 
+  -- ** Filtered traversals
+  unfinished,
+  overdues,
+  tasksToActivate,
+  notActivePTasks,
+  notCoolingDown
 ) where
 
 import System.Random (StdGen, random, mkStdGen, newStdGen)
@@ -68,6 +78,9 @@ import Data.Time (Day, getCurrentTime, utctDay)
 import qualified Data.Time as Time
 import Control.Lens
 import Control.Monad.State.Lazy
+import System.IO (hFlush, stdout, openFile, hGetContents, hClose,
+                  IOMode(ReadMode))
+import Control.Exception (SomeException, try)
 
 -- | Overall task management state
 data TaskStat = TaskStat {
@@ -170,7 +183,7 @@ pTasksToActiveM pTask = do
 getPTasksToActivateM :: State TaskStat [PooledTask]
 getPTasksToActivateM = do
   stat <- get
-  let potentialPTasks = toListOf (tasksToActivateM stat) stat
+  let potentialPTasks = toListOf (tasksToActivate stat) stat
   pickPTasksRandomlyM potentialPTasks
 
 -- | Pick tasks from the 'PooledTask' list randomly
@@ -192,14 +205,14 @@ randomFloatM = do
   return val
 
 -- | Traversal to the tasks which can be potentially activated
-tasksToActivateM :: TaskStat -> Traversal' TaskStat PooledTask
-tasksToActivateM stat = pool.traverse.(notActivePTasks $ view actives stat)
+tasksToActivate :: TaskStat -> Traversal' TaskStat PooledTask
+tasksToActivate stat = pool.traverse.(notActivePTasks $ view actives stat)
                              .(notCoolingDown $ view today stat)
 
 -- | Filter only tasks which are not inside the given 'ActiveTask' list
 notActivePTasks :: [ActiveTask] -> Traversal' PooledTask PooledTask
 notActivePTasks aTasks = filtered $ \pTask ->
-  (pTask ^. ptTask . tTitle) `elem`
+  (pTask ^. ptTask . tTitle) `notElem`
         map (\aTask -> aTask ^. atTask . tTitle) aTasks
 
 -- | Filter only tasks which are not cooling down at the moment
@@ -263,3 +276,17 @@ updateTaskStat ts = do
   let ts'' = ts' & rand .~  stdGen
   return ts''
 
+loadTmUnsafe :: String -> IO TaskStat
+loadTmUnsafe filename = do
+  handle <- openFile filename ReadMode
+  !state <- hGetContents handle
+  let !tm = (read state) :: TaskStat
+  hClose handle
+  return tm
+
+loadTm :: String -> IO (Maybe TaskStat)
+loadTm filename = do
+  eitherTm <- (try $ loadTmUnsafe filename) :: IO (Either SomeException TaskStat)
+  case eitherTm of
+    Left _ -> return Nothing
+    Right tm -> return $ Just tm

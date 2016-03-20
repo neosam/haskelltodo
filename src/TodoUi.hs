@@ -136,8 +136,12 @@ printMenuEntries menu = do
 
 mainMenu = Menu "Todo - Main" "Exit" [
   ("Add active task", IOAction addActiveTaskAction),
-  ("Add scheduled task", IOAction addScheduledTaskAction)
+  ("Add pooled task", IOAction addScheduledTaskAction),
+  ("Activate pooled tasks", IOAction activateAction)
  ]
+
+activateAction :: TuiState ()
+activateAction = tuiTaskStat %= activate
 
 liftSt :: State a b -> StateT a IO b
 liftSt st = do
@@ -169,21 +173,6 @@ save = do
   filename <- use tuiFilename
   let saveStr = show ts
   lift $ writeFile filename saveStr
-
-loadTmUnsafe :: String -> IO TaskStat
-loadTmUnsafe filename = do
-  handle <- openFile filename ReadMode
-  !state <- hGetContents handle
-  let !tm = (read state) :: TaskStat
-  hClose handle
-  return tm
-
-loadTm :: String -> IO (Maybe TaskStat)
-loadTm filename = do
-  eitherTm <- (try $ loadTmUnsafe filename) :: IO (Either SomeException TaskStat)
-  case eitherTm of
-    Left _ -> return Nothing
-    Right tm -> return $ Just tm
 
 load :: TuiState ()
 load = do

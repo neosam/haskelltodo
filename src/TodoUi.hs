@@ -222,9 +222,10 @@ addScheduledTaskAction = do
   title <- promptString "Title: "
   desc <- promptString "Description: "
   factor <- promptFloat "Factor: "
-  dueDays <- promptInt "Due in days:"
+  dueDays <- promptInt "Due in days: "
   prop <- promptFloat "Propability to be picked: "
-  tuiTaskStat %= addPooledTask (title, desc, factor, dueDays, prop)
+  coolDown <- promptInt "Cool down days: "
+  tuiTaskStat %= addPooledTask (title, desc, factor, dueDays, prop, coolDown)
 
 save :: TuiState ()
 save = do

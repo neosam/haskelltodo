@@ -108,7 +108,8 @@ data PooledTask = PooledTask {
   _ptTask :: Task,
   _ptDueDays :: Int,
   _ptProp :: Float,
-  _ptLastFinished :: Day
+  _ptLastFinished :: Day,
+  _ptCoolDown :: Int
  } deriving (Eq, Show, Read)
 
 -- | The core of a task
@@ -170,13 +171,13 @@ addActiveTask :: (String, String, Float, Int) -> TaskStat -> TaskStat
 addActiveTask vals = execState $ addActiveTaskM vals
 
 -- | Adding a pooled task to the state
-addPooledTaskM :: (String, String, Float, Int, Float) -> State TaskStat ()
-addPooledTaskM (title, desc, factor, dueDay, prop) = do
+addPooledTaskM :: (String, String, Float, Int, Float, Int) -> State TaskStat ()
+addPooledTaskM (title, desc, factor, dueDay, prop, coolDown) = do
   let task = Task title desc factor
-      pTask = PooledTask task dueDay prop zeroDay
+      pTask = PooledTask task dueDay prop zeroDay coolDown
   pool %= (\xs -> pTask : xs)
 
-addPooledTask :: (String, String, Float, Int, Float) -> TaskStat -> TaskStat
+addPooledTask :: (String, String, Float, Int, Float, Int) -> TaskStat -> TaskStat
 addPooledTask vals = execState $ addPooledTaskM vals
 
 -- | Randomly activate pooled tasks

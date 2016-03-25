@@ -144,8 +144,29 @@ mainMenu = Menu "Todo - Main" "Exit" [
     ("Show tasks next 7 days", IOAction (showTasksNextDaysAction 7)),
     ("Show tasks next 30 days", IOAction (showTasksNextDaysAction 30))
   ])),
+  ("Mark done", IOAction markDoneAction),
   ("Cleanup actives", IOAction cleanupAction)
  ]
+
+markDoneAction :: TuiState ()
+markDoneAction = do
+  stat <- get
+  let actives = stat ^.. allActives
+      menuList = map activeToMarkDoneAction actives
+      menu = Menu "Mark done" "Done" menuList
+  doMenu menu
+
+activeToMarkDoneAction :: ActiveTask -> (String, MenuEntry)
+activeToMarkDoneAction aTask =
+  let title = (aTask ^. atTask . tTitle) :: String
+  in (title, IOAction $ markTaskDone aTask)
+
+markTaskDone :: ActiveTask -> TuiState ()
+markTaskDone aTask = do
+  let title = aTask ^. atTask . tTitle
+  tuiTaskStat %= markDone title
+  return ()
+
 
 cleanupAction :: TuiState ()
 cleanupAction = tuiTaskStat %= cleanup

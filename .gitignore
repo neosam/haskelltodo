@@ -2,3 +2,6 @@ cabal.sandbox.config
 build
 .cabal-sandbox/
 dist/
+backup/
+state.sav
+state.sav.log

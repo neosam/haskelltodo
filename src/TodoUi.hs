@@ -2,25 +2,31 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 import Todo.Todo
+import Todo.Changelog as CL
 import Control.Lens
 import Control.Monad.State.Lazy
 import System.IO (hFlush, stdout, openFile, hGetContents, hClose,
                   IOMode(ReadMode))
 import Control.Exception (SomeException, try)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import Data.Time (getZonedTime)
 
 data Menu = Menu {
-     _menuTitle :: String,
-     _exitLabel :: String,
-     _menuEntries :: [(String, MenuEntry)]
+     _menuTitle :: T.Text,
+     _exitLabel :: T.Text,
+     _menuEntries :: [(T.Text, MenuEntry)]
 }
 
 
 data TuiStat = TuiStat {
-  _tuiFilename :: String,
+  _tuiFilename :: T.Text,
   _tuiMainMenu :: Menu,
-  _tuiTaskStat :: TaskStat
+  _tuiTaskStat :: TaskStat,
+  _tuiLog :: CL.Log
 }
 
 type TuiState = StateT TuiStat IO
@@ -35,8 +41,8 @@ makeLenses ''TuiStat
 newline :: TuiState ()
 newline = lift $ putStr "\n"
 
-tPutStr :: String -> TuiState ()
-tPutStr str = lift $ putStr str
+tPutStr :: T.Text -> TuiState ()
+tPutStr str = lift $ TIO.putStr str
 
 
 run :: TuiStat -> IO TuiStat
@@ -45,6 +51,7 @@ run stat = execStateT runTuiStat stat
 runTuiStat :: TuiState ()
 runTuiStat = do
   load
+  loadLog
   mainMenu <- use tuiMainMenu
   doMenu mainMenu
 
@@ -83,15 +90,15 @@ doMenuUserInput menu = do
            (_, entry) = entries !! (choice - 1)
        doMenuEntry entry
 
-promptString :: String -> TuiState String
+promptString :: T.Text -> TuiState T.Text
 promptString str = do
-  lift $ putStr str
+  lift $ TIO.putStr str
   lift $ hFlush stdout
-  lift $ getLine
+  lift $ TIO.getLine
 
-promptInt :: String -> TuiState Int
+promptInt :: T.Text -> TuiState Int
 promptInt str = do
-   lift $ putStr str
+   lift $ TIO.putStr str
    lift $ hFlush stdout
    eitherInt <- (lift $ try readLn) :: StateT TuiStat IO (Either SomeException Int)
    case eitherInt of
@@ -100,9 +107,9 @@ promptInt str = do
        promptInt str
      Right i -> return i
 
-promptFloat :: String -> TuiState Float
+promptFloat :: T.Text -> TuiState Float
 promptFloat str = do
-   lift $ putStr str
+   lift $ TIO.putStr str
    lift $ hFlush stdout
    eitherFloat <- (lift $ try readLn) :: StateT TuiStat IO (Either SomeException Float)
    case eitherFloat of
@@ -126,7 +133,7 @@ printMenuEntries menu = do
   let indices = [1..] :: [Int]
       zipped = zip indices entries
   forM_ zipped $ \(i, (title, _)) -> do
-    tPutStr $ show i
+    tPutStr $ T.pack $ show i
     tPutStr " - "
     tPutStr title
     newline
@@ -145,8 +152,31 @@ mainMenu = Menu "Todo - Main" "Exit" [
     ("Show tasks next 30 days", IOAction (showTasksNextDaysAction 30))
   ])),
   ("Mark done", IOAction markDoneAction),
-  ("Cleanup actives", IOAction cleanupAction)
+  ("Verify log", IOAction verifyLogAction),
+  ("Show log", IOAction showLogAction),
+  ("Rehash log", IOAction rehashLogAction)
  ]
+
+rehashLogAction :: TuiState ()
+rehashLogAction = do
+  tuiLog %= rehashLogHistory
+
+verifyLogAction :: TuiState ()
+verifyLogAction = do
+  log <- use tuiLog
+  let (result, logLines) = validateLogHistory Nothing log
+  lift $ forM_ logLines $ \x -> do TIO.putStr x
+                                   TIO.putStr "\n"
+  if result
+     then lift $ TIO.putStr "Log verification successful.\n"
+     else lift $ TIO.putStr "Log verificatuon failed.\n"
+
+showLogAction :: TuiState ()
+showLogAction = do
+  log <- use tuiLog
+  let logLines = logToTextList log
+      outText = T.unlines logLines
+  lift $ TIO.putStr outText
 
 markDoneAction :: TuiState ()
 markDoneAction = do
@@ -156,15 +186,18 @@ markDoneAction = do
       menu = Menu "Mark done" "Done" menuList
   doMenu menu
 
-activeToMarkDoneAction :: ActiveTask -> (String, MenuEntry)
+activeToMarkDoneAction :: ActiveTask -> (T.Text, MenuEntry)
 activeToMarkDoneAction aTask =
-  let title = (aTask ^. atTask . tTitle) :: String
+  let title = (aTask ^. atTask . tTitle) :: T.Text
   in (title, IOAction $ markTaskDone aTask)
 
 markTaskDone :: ActiveTask -> TuiState ()
 markTaskDone aTask = do
   let title = aTask ^. atTask . tTitle
   tuiTaskStat %= markDone title
+  time <- lift $ getZonedTime
+  tuiLog %= CL.addLogAction (CompletedActiveAction aTask) time
+  tuiTaskStat %= cleanup
   return ()
 
 
@@ -204,14 +237,14 @@ showActives tr = do
   let aTasks = st ^.. tr
   mapM_ printActive $ st ^.. tr
   tPutStr "Task count:  "
-  tPutStr $ show $ length aTasks
+  tPutStr $ T.pack $ show $ length aTasks
   tPutStr "\n"
   _ <- promptString "Press enter key to continue..."
   return ()
 
 printActive :: ActiveTask -> TuiState ()
 printActive aTask = do
-  tPutStr $ show $ aTask ^. atDue
+  tPutStr $ T.pack $ show $ aTask ^. atDue
   tPutStr ":  "
   tPutStr $ aTask ^. atTask . tTitle
   tPutStr " ("
@@ -221,7 +254,12 @@ printActive aTask = do
   tPutStr ")\n"
 
 activateAction :: TuiState ()
-activateAction = tuiTaskStat %= activate
+activateAction = do
+  taskStat <- use tuiTaskStat
+  let (aTasks, stat) = activateR taskStat
+  tuiTaskStat .= stat
+  time <- lift $ getZonedTime
+  tuiLog %= CL.addLogAction (ActivationAction aTasks) time
 
 liftSt :: State a b -> StateT a IO b
 liftSt st = do
@@ -236,7 +274,12 @@ addActiveTaskAction = do
   desc <- promptString "Description: "
   factor <- promptFloat "Factor: "
   dueDays <- promptInt "Due in days: "
-  tuiTaskStat %= addActiveTask (title, desc, factor, dueDays)
+  taskStat <- use tuiTaskStat
+  let (aTask, stat) = addActiveTaskR (title, desc, factor, dueDays) taskStat
+  tuiTaskStat .= stat
+  time <- lift $ getZonedTime
+  tuiLog %= CL.addLogAction (NewActiveAction aTask) time
+
 
 addScheduledTaskAction :: TuiState ()
 addScheduledTaskAction = do
@@ -246,19 +289,45 @@ addScheduledTaskAction = do
   dueDays <- promptInt "Due in days: "
   prop <- promptFloat "Propability to be picked: "
   coolDown <- promptInt "Cool down days: "
-  tuiTaskStat %= addPooledTask (title, desc, factor, dueDays, prop, coolDown)
+  taskStat <- use tuiTaskStat
+  let (pTask, stat) = addPooledTaskR (title, desc, factor, dueDays, prop, coolDown) taskStat
+  tuiTaskStat .= stat
+  time <- lift $ getZonedTime
+  tuiLog %= CL.addLogAction (NewPooledAction pTask) time
 
 save :: TuiState ()
 save = do
   ts <- use tuiTaskStat
   filename <- use tuiFilename
   let saveStr = show ts
-  lift $ writeFile filename saveStr
+  lift $ TIO.writeFile (T.unpack filename) $ T.pack saveStr
+
+  log <- use tuiLog
+  let logFilename = T.append filename ".log"
+  let logSaveStr = show log
+  lift $ TIO.writeFile (T.unpack logFilename) $ T.pack logSaveStr
+
+loadLogUnsafe :: String -> IO CL.Log
+loadLogUnsafe filename = do
+  text <- TIO.readFile filename
+  let log = (read (T.unpack text)) :: CL.Log
+  return log
+
+loadLog :: TuiState ()
+loadLog = do
+  filename' <- use tuiFilename
+  let filename = T.append filename' ".log"
+  let eitherLogIO = (try $ loadLogUnsafe (T.unpack filename)) :: IO (Either SomeException CL.Log)
+  eitherLog <- lift $ eitherLogIO
+  newLogVal <- lift $ newLog
+  tuiLog .= case eitherLog of
+    Left _ -> newLogVal
+    Right log -> log
 
 load :: TuiState ()
 load = do
   filename <- use tuiFilename
-  maybeTm <- lift $ loadTm filename
+  maybeTm <- lift $ loadTm $ T.unpack filename
   case maybeTm of
     Nothing -> return ()
     Just tm -> do
@@ -266,7 +335,8 @@ load = do
 
 main :: IO ()
 main = do
-  let tuiStat = TuiStat "state.sav" mainMenu emptyTaskStat
+  log <- CL.newLog
+  let tuiStat = TuiStat "state.sav" mainMenu emptyTaskStat log
   _ <- run tuiStat
   return ()
 

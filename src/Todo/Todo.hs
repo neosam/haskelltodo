@@ -12,6 +12,7 @@ Provides the basic functionality for the tasks.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 
 module Todo.Todo (
@@ -24,11 +25,14 @@ module Todo.Todo (
   -- * TaskStat State monad functions
   emptyTaskStat,
   addActiveTaskM,
+  addActiveTaskR,
   addActiveTask,
   addPooledTask,
   addPooledTaskM,
+  addPooledTaskR,
   activate,
   activateM,
+  activateR,
   getOverdues,
   getOverduesM,
   cleanup,
@@ -73,7 +77,9 @@ module Todo.Todo (
   notCoolingDown,
 
   -- * Other
-  addDays
+  addDays,
+  putActiveTask,
+  putPooledTask
 ) where
 
 import System.Random (StdGen, random, mkStdGen, newStdGen)
@@ -84,10 +90,17 @@ import Control.Monad.State.Lazy
 import System.IO (hFlush, stdout, openFile, hGetContents, hClose,
                   IOMode(ReadMode))
 import Control.Exception (SomeException, try)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as B
+import Data.Binary.Put
+import Data.Binary.IEEE754
+import Data.Int
 
 -- | Overall task management state
 data TaskStat = TaskStat {
-  _taskVer :: String,
+  _taskVer :: T.Text,
   _actives :: [ActiveTask],
   _pool :: [PooledTask],
   _today :: Day,
@@ -98,6 +111,7 @@ data TaskStat = TaskStat {
 -- | Avtivated tasks
 data ActiveTask = ActiveTask {
   _atTask :: Task,
+  _atBegin :: Day,
   _atDue :: Day,
   _atFinished :: Maybe Day
  } deriving (Eq, Show, Read)
@@ -114,8 +128,8 @@ data PooledTask = PooledTask {
 
 -- | The core of a task
 data Task = Task {
-  _tTitle :: String,
-  _tDesc :: String,
+  _tTitle :: T.Text,
+  _tDesc :: T.Text,
   _tFactor :: Float
  } deriving (Eq, Show, Read)
 
@@ -159,35 +173,47 @@ emptyTaskStat :: TaskStat
 emptyTaskStat = TaskStat "0.1" [] [] zeroDay (mkStdGen 0)
 
 -- | Add an active task to the state
-addActiveTaskM:: (String, String, Float, Int) -> State TaskStat ()
+addActiveTaskM:: (T.Text, T.Text, Float, Int) -> State TaskStat ActiveTask
 addActiveTaskM (title, desc, factor, dueDays) = do
   t <- use today
   let task = Task title desc factor
       due = addDays dueDays t
-      aTask = ActiveTask task due Nothing
+      aTask = ActiveTask task t due Nothing
   actives %= (\xs -> aTask : xs)
+  return aTask
 
-addActiveTask :: (String, String, Float, Int) -> TaskStat -> TaskStat
+addActiveTask :: (T.Text, T.Text, Float, Int) -> TaskStat -> TaskStat
 addActiveTask vals = execState $ addActiveTaskM vals
 
+addActiveTaskR :: (T.Text, T.Text, Float, Int) -> TaskStat -> (ActiveTask, TaskStat)
+addActiveTaskR vals = runState $ addActiveTaskM vals
+
 -- | Adding a pooled task to the state
-addPooledTaskM :: (String, String, Float, Int, Float, Int) -> State TaskStat ()
+addPooledTaskM :: (T.Text, T.Text, Float, Int, Float, Int) -> State TaskStat PooledTask
 addPooledTaskM (title, desc, factor, dueDay, prop, coolDown) = do
   let task = Task title desc factor
       pTask = PooledTask task dueDay prop zeroDay coolDown
   pool %= (\xs -> pTask : xs)
+  return pTask
 
-addPooledTask :: (String, String, Float, Int, Float, Int) -> TaskStat -> TaskStat
+
+addPooledTaskR :: (T.Text, T.Text, Float, Int, Float, Int) -> TaskStat -> (PooledTask, TaskStat)
+addPooledTaskR vals = runState $ addPooledTaskM vals
+
+addPooledTask :: (T.Text, T.Text, Float, Int, Float, Int) -> TaskStat -> TaskStat
 addPooledTask vals = execState $ addPooledTaskM vals
 
 -- | Randomly activate pooled tasks
-activateM :: State TaskStat ()
+activateM :: State TaskStat [ActiveTask]
 activateM = do
   stat <- get
   pTasks <- getPTasksToActivateM
   aTasks <- mapM pTasksToActiveM pTasks
   actives %= (\xs -> aTasks ++ xs)
-  return ()
+  return aTasks
+
+activateR :: TaskStat -> ([ActiveTask], TaskStat)
+activateR = runState activateM
 
 activate :: TaskStat -> TaskStat
 activate = execState activateM
@@ -198,7 +224,7 @@ pTasksToActiveM pTask = do
   day <- use today
   let task = view ptTask pTask
       due = addDays (view ptDueDays pTask) day
-  return $ ActiveTask task due Nothing
+  return $ ActiveTask task day due Nothing
 
 
 -- | Pick pooled tasks which can be activated
@@ -275,16 +301,16 @@ unfinished = actives.traverse.(filtered $ \aTask ->
   (aTask ^. atFinished) /= Nothing)
 
 -- | Mark task with the given title done.
-markDoneM :: String -> State TaskStat ()
+markDoneM :: T.Text -> State TaskStat ()
 markDoneM title = do
   day <- use today
   (taskWithTitle title).atFinished .= Just day
 
-markDone :: String -> TaskStat -> TaskStat
+markDone :: T.Text -> TaskStat -> TaskStat
 markDone title = execState $ markDoneM title
 
 -- | Traversal to task with given title
-taskWithTitle :: String -> Traversal' TaskStat ActiveTask
+taskWithTitle :: T.Text -> Traversal' TaskStat ActiveTask
 taskWithTitle title = actives.traverse.(filtered $ \aTask ->
   (aTask ^. atTask . tTitle) == title
  )
@@ -300,10 +326,8 @@ updateTaskStat ts = do
 
 loadTmUnsafe :: String -> IO TaskStat
 loadTmUnsafe filename = do
-  handle <- openFile filename ReadMode
-  !state <- hGetContents handle
-  let !tm = (read state) :: TaskStat
-  hClose handle
+  state <- TIO.readFile filename
+  let tm = (read (T.unpack state)) :: TaskStat
   return tm
 
 loadTm :: String -> IO (Maybe TaskStat)
@@ -312,3 +336,39 @@ loadTm filename = do
   case eitherTm of
     Left _ -> return Nothing
     Right tm -> return $ Just tm
+
+
+putActiveTask :: ActiveTask -> Put
+putActiveTask aTask = do
+  putTask $ aTask ^. atTask
+  putDay $ aTask ^. atDue
+  case aTask ^. atFinished of
+    Nothing -> putInt8 0
+    Just finished -> putDay finished
+
+putTask :: Task -> Put
+putTask task = do
+  let title = TE.encodeUtf8 $ task ^. tTitle
+      desc = TE.encodeUtf8 $ task ^. tDesc
+  putInt16le $ fromInteger $ toInteger $ B.length title
+  putByteString title
+  putInt16le $ fromInteger $ toInteger $ B.length desc
+  putByteString desc
+  putFloat32le $ task ^. tFactor
+
+
+putDay :: Day -> Put
+putDay t = do
+  let tStr = show t
+      tText = T.pack tStr
+      tBs = TE.encodeUtf8 tText
+  putInt8 $ fromInteger $ toInteger $ B.length tBs
+  putByteString tBs
+
+putPooledTask :: PooledTask -> Put
+putPooledTask pTask = do
+  putTask $ pTask ^. ptTask
+  putInt32le $ fromInteger $ toInteger $ pTask ^. ptDueDays
+  putFloat32le $ pTask ^. ptProp
+  putDay $ pTask ^. ptLastFinished
+  putInt16le $ fromInteger $ toInteger $ pTask ^. ptCoolDown

@@ -1,6 +1,6 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 module Todo.Changelog (
                       -- * The Log type
@@ -28,25 +28,26 @@ module Todo.Changelog (
                       validateEntryHistory,
                       validateLogHistory,
                       rehashEntryHistory,
-                      rehashLogHistory
+                      rehashLogHistory,
+                      rebuildTaskStat
                       ) where
 
-import Data.Time
-import Codec.Utils (Octet)
-import Todo.Todo
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import Data.Text (Text)
-import qualified Data.UUID as U
-import Data.UUID (UUID)
-import qualified Data.UUID.V4 as UuidV4
-import Control.Lens
-import Data.Binary.Put
-import Data.Int
-import Control.Monad
-import qualified Data.Digest.SHA256 as Sha256
+import           Codec.Utils          (Octet)
+import           Control.Lens
+import           Control.Monad
+import           Data.Binary.Put
+import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString as B
+import qualified Data.Digest.SHA256   as Sha256
+import           Data.Int
+import           Data.Text            (Text)
+import qualified Data.Text            as T
+import qualified Data.Text.Encoding   as TE
+import           Data.Time
+import           Data.UUID            (UUID)
+import qualified Data.UUID            as U
+import qualified Data.UUID.V4         as UuidV4
+import           Todo.Todo
 
 
 {-| Store the logs and some meta data. -}
@@ -93,11 +94,11 @@ data EntryAction =
     - Action stringified
 -}
 data LogEntry = LogEntry {
-  _entryHash :: EntryHash,
+  _entryHash    :: EntryHash,
   _entryVersion :: EntryVersion,
-  _entryParent :: ParentLogEntry,
-  _entryTime :: ZonedTime,
-  _entryAction :: EntryAction
+  _entryParent  :: ParentLogEntry,
+  _entryTime    :: ZonedTime,
+  _entryAction  :: EntryAction
 } deriving (Show, Read)
 
 data ParentLogEntry =
@@ -284,3 +285,40 @@ rehashLogHistory log =
     PrevLogEntry logEntry ->
       set logHead (PrevLogEntry $ rehashEntryHistory logEntry) log
 
+
+{-| Applies a LogEntry to a TaskStat and returns the result. -}
+statStep :: (LogEntry, TaskStat) -> TaskStat
+statStep (logEntry, stat) = case logEntry ^. entryAction of
+  NewActiveAction aTask -> addActiveTaskType aTask stat
+  NewPooledAction pTask -> addPooledTaskType pTask stat
+  CompletedActiveAction aTask -> markDone (aTask ^. atTask . tTitle) stat
+  ActivationAction aTasks ->
+    foldr addActiveTaskType stat aTasks
+
+{-| Rebuild the whole TaskStat from a Log -}
+rebuildTaskStat :: Log -> TaskStat
+rebuildTaskStat log =
+  let entries = logToEntryList log
+   in rebuildTaskStatFromList entries
+
+applyLogEntriesToTaskStat :: [LogEntry] -> TaskStat -> TaskStat
+applyLogEntriesToTaskStat entries taskStat = foldr aux taskStat entries
+    where aux entry stat = statStep (entry, stat)
+
+rebuildTaskStatFromList :: [LogEntry] -> TaskStat
+rebuildTaskStatFromList entries =
+  applyLogEntriesToTaskStat entries emptyTaskStat
+
+{-| Turns the Log to a list of its LogEntries.
+    Starting with the most recent LogEntry. -}
+logToEntryList :: Log -> [LogEntry]
+logToEntryList log =
+  let parentEntry = log ^. logHead
+   in parentEntryToEntryList parentEntry
+
+{-| Turns a LogEntry and its parent to a List.
+    Starting with the most recent LogEntry. -}
+parentEntryToEntryList :: ParentLogEntry -> [LogEntry]
+parentEntryToEntryList (StartLogEntry _) = []
+parentEntryToEntryList (PrevLogEntry e) =
+  e : (parentEntryToEntryList $ e ^. entryParent)

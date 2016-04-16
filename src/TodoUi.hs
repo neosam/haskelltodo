@@ -100,7 +100,8 @@ promptInt :: T.Text -> TuiState Int
 promptInt str = do
    lift $ TIO.putStr str
    lift $ hFlush stdout
-   eitherInt <- (lift $ try readLn) :: StateT TuiStat IO (Either SomeException Int)
+   eitherInt <- (lift $ try readLn) :: StateT TuiStat IO
+                                       (Either SomeException Int)
    case eitherInt of
      Left _ -> do
        lift $ putStr "Try again\n"
@@ -152,10 +153,18 @@ mainMenu = Menu "Todo - Main" "Exit" [
     ("Show tasks next 30 days", IOAction (showTasksNextDaysAction 30))
   ])),
   ("Mark done", IOAction markDoneAction),
-  ("Verify log", IOAction verifyLogAction),
-  ("Show log", IOAction showLogAction),
-  ("Rehash log", IOAction rehashLogAction)
+  ("Changelog actions", SubMenu (Menu "Changelog" "Back" [
+    ("Verify log", IOAction verifyLogAction),
+    ("Show log", IOAction showLogAction),
+    ("Rehash log", IOAction rehashLogAction),
+    ("Rebuild state", IOAction rebuildStateAction)
+  ]))
  ]
+
+rebuildStateAction :: TuiState ()
+rebuildStateAction = do
+  log <- use tuiLog
+  tuiTaskStat .= rebuildTaskStat log
 
 rehashLogAction :: TuiState ()
 rehashLogAction = do

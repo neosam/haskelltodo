@@ -8,11 +8,10 @@ Provides the basic functionality for the tasks.
 
 -}
 
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 
 module Todo.Todo (
@@ -27,9 +26,11 @@ module Todo.Todo (
   addActiveTaskM,
   addActiveTaskR,
   addActiveTask,
+  addActiveTaskType,
   addPooledTask,
   addPooledTaskM,
   addPooledTaskR,
+  addPooledTaskType,
   activate,
   activateM,
   activateR,
@@ -82,54 +83,54 @@ module Todo.Todo (
   putPooledTask
 ) where
 
-import System.Random (StdGen, random, mkStdGen, newStdGen)
-import Data.Time (Day, getCurrentTime, utctDay)
-import qualified Data.Time as Time
-import Control.Lens
-import Control.Monad.State.Lazy
-import System.IO (hFlush, stdout, openFile, hGetContents, hClose,
-                  IOMode(ReadMode))
-import Control.Exception (SomeException, try)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString as B
-import Data.Binary.Put
-import Data.Binary.IEEE754
-import Data.Int
+import           Control.Exception        (SomeException, try)
+import           Control.Lens
+import           Control.Monad.State.Lazy
+import           Data.Binary.IEEE754
+import           Data.Binary.Put
+import qualified Data.ByteString          as B
+import           Data.Int
+import qualified Data.Text                as T
+import qualified Data.Text.Encoding       as TE
+import qualified Data.Text.IO             as TIO
+import           Data.Time                (Day, getCurrentTime, utctDay)
+import qualified Data.Time                as Time
+import           System.IO                (IOMode (ReadMode), hClose, hFlush,
+                                           hGetContents, openFile, stdout)
+import           System.Random            (StdGen, mkStdGen, newStdGen, random)
 
 -- | Overall task management state
 data TaskStat = TaskStat {
   _taskVer :: T.Text,
   _actives :: [ActiveTask],
-  _pool :: [PooledTask],
-  _today :: Day,
-  _rand :: StdGen
+  _pool    :: [PooledTask],
+  _today   :: Day,
+  _rand    :: StdGen
 } deriving (Show, Read)
 
 
 -- | Avtivated tasks
 data ActiveTask = ActiveTask {
-  _atTask :: Task,
-  _atBegin :: Day,
-  _atDue :: Day,
+  _atTask     :: Task,
+  _atBegin    :: Day,
+  _atDue      :: Day,
   _atFinished :: Maybe Day
  } deriving (Eq, Show, Read)
 
 
 -- | Tasks which can be potentially activated
 data PooledTask = PooledTask {
-  _ptTask :: Task,
-  _ptDueDays :: Int,
-  _ptProp :: Float,
+  _ptTask         :: Task,
+  _ptDueDays      :: Int,
+  _ptProp         :: Float,
   _ptLastFinished :: Day,
-  _ptCoolDown :: Int
+  _ptCoolDown     :: Int
  } deriving (Eq, Show, Read)
 
 -- | The core of a task
 data Task = Task {
-  _tTitle :: T.Text,
-  _tDesc :: T.Text,
+  _tTitle  :: T.Text,
+  _tDesc   :: T.Text,
   _tFactor :: Float
  } deriving (Eq, Show, Read)
 
@@ -151,7 +152,7 @@ makeLenses ''Task
 --
 --readStat :: Int -> String -> [(Stat, String)]
 --readStat n str =
---  let [(version, str')] = readsPrec 
+--  let [(version, str')] = readsPrec
 
 
 
@@ -298,7 +299,7 @@ cleanup = execState cleanupM
 -- | Traversal to the unfinished 'ActiveTask's
 unfinished :: Traversal' TaskStat ActiveTask
 unfinished = actives.traverse.(filtered $ \aTask ->
-  (aTask ^. atFinished) /= Nothing)
+  (aTask ^. atFinished) == Nothing)
 
 -- | Mark task with the given title done.
 markDoneM :: T.Text -> State TaskStat ()
@@ -372,3 +373,9 @@ putPooledTask pTask = do
   putFloat32le $ pTask ^. ptProp
   putDay $ pTask ^. ptLastFinished
   putInt16le $ fromInteger $ toInteger $ pTask ^. ptCoolDown
+
+addActiveTaskType :: ActiveTask -> TaskStat -> TaskStat
+addActiveTaskType aTask = over actives $ \x -> aTask : x
+
+addPooledTaskType :: PooledTask -> TaskStat -> TaskStat
+addPooledTaskType pTask = over pool $ \x -> pTask : x

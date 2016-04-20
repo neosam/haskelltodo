@@ -17,8 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Todo.Todo,
-                       Todo.Changelog,
-                       Todo.LogAnalytics
+                       Todo.Changelog
                        --Todo.Finance
 
   -- other-extensions:    
